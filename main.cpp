@@ -22,6 +22,9 @@
 #include <boost/optional.hpp>
 #include <boost/unordered_map.hpp>
 #include <utility>
+#include <ctime>
+#include <thread>
+#include <chrono>
 #include "distributor.h"
 using namespace boost::property_tree;
 using namespace std;
@@ -179,14 +182,18 @@ int main(int argc , char *argv[])
         exit(EXIT_FAILURE);
     }
     // Insert my info to dist map
-    //insert_dist(dist_map, *my_topic, *my_host, *my_record);
     distributor.set_values(*my_host, *my_record);
-    //distributor.host= *my_host;
-    //distributor.record = *my_record;
+    distributor.get_current_time();
     pair = make_pair(*my_topic, distributor);
     dist_map.insert(pair);
     my_topic_level = count((*my_topic).begin(), (*my_topic).end(), '/');
     cout << "My topic level is " << my_topic_level << endl;
+
+    //time_t result = time(nullptr);
+    //cout << " Now is " << result << endl;
+    //this_thread::sleep_for (chrono::seconds(1));
+    //result = time(nullptr);
+    //cout << " Now is " << result << endl;
 
     BOOST_FOREACH (const ptree::value_type& child, pt.get_child("distributor_list")) {
         const ptree& entry = child.second;
@@ -215,9 +222,9 @@ int main(int argc , char *argv[])
 
     cout << "==> dist_map" << endl;
     for (auto x : dist_map) {
-        cout << "    " << x.first << " " << x.second.host << " " << x.second.record << endl;
+        cout << "    " << x.first << " " << x.second.host << " " << x.second.record
+             << "    " << asctime(localtime(&(x.second.last_learned)));
     }
-    cout << endl;
     
     // Connect to parent to say hello
     if (parent) {
@@ -507,6 +514,12 @@ int main(int argc , char *argv[])
                                     cout << "Topic: " << (*topic).substr(0, found) << endl;
                                     cout << "Host: " << distributor.host << endl;
                                     cout << "Record: " << distributor.record << endl;
+                                    cout << "Learned: " << asctime(localtime(&(distributor.last_learned)));
+                                    time_t elapsed_time= time(nullptr) - distributor.last_learned;
+                                    cout << elapsed_time << " second past since last time learned";
+                                    // Todo: if certain time have passed, delete entry 
+                                    // Todo: dont delete default entry loaded from conf.JSON
+                                    //       クラスに識別子を入れる
                                     cout << endl;
                                     break;
                                 }
