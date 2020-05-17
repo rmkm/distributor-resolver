@@ -50,7 +50,7 @@ int main(int argc , char *argv[])
     fd_set readfds; 
         
     //a message 
-    char *message = "ECHO Daemon v1.0 \r\n"; 
+    //char *message = "ECHO Daemon v1.0 \r\n"; 
 
     //initialise all client_socket[] to 0 so not checked 
     for (i = 0; i < max_clients; i++) 
@@ -61,7 +61,7 @@ int main(int argc , char *argv[])
     typedef boost::unordered_map<string, int> client_map;
     client_map cli_map;
 
-    typedef boost::unordered_map<string, Distributor> distributor_map;
+    //typedef boost::unordered_map<string, Distributor> distributor_map;
     distributor_map dist_map;
     ptree pt;
     read_json("conf.json", pt);
@@ -97,11 +97,11 @@ int main(int argc , char *argv[])
     my_topic_level = count((*my_topic).begin(), (*my_topic).end(), '/');
     cout << "My topic level is " << my_topic_level << endl;
 
-    //time_t result = time(nullptr);
-    //cout << " Now is " << result << endl;
-    //this_thread::sleep_for (chrono::seconds(1));
-    //result = time(nullptr);
-    //cout << " Now is " << result << endl;
+    if (root) {
+        Distributor rootd;
+        rootd.set_host(*root);
+        dist_map.insert(make_pair("root", rootd)); // key is "root"
+    }
 
     BOOST_FOREACH (const ptree::value_type& child, pt.get_child("distributor_list")) {
         const ptree& entry = child.second;
@@ -204,22 +204,9 @@ int main(int argc , char *argv[])
         FD_SET(sock , &readfds); 
 
         //Test code start
-        if (test_code && *test_code == "yes") {
+        if (test_code && *test_code == "true") {
             // create Query
             send_query(sock, query_topic);
-            //ss.str("");
-            //pt_test = create_query("regionA/blockA/buildingB");
-            ////pt_test.put("Type", "Query");
-            ////string test_topic = "regionA/blockA";
-            ////pt_test.put("Topic", test_topic);
-            //if (!pt_test.empty()) {
-            //    write_json(ss, pt_test);
-            //} else {
-            //    cerr << "ERR: Could not create query" << endl;
-            //    exit(EXIT_FAILURE); 
-            //}
-            //cout << "Test message:" << endl << ss.str().c_str() << endl;
-            //send(sock, ss.str().c_str(), ss.str().length(), 0);
         }
         //Test code end
     }
@@ -354,13 +341,13 @@ int main(int argc , char *argv[])
                         
                     //Close the socket and mark as 0 in list for reuse 
                     close( sd ); 
-                    client_socket[i] = 0; 
+                    client_socket[i] = 0;
                 } 
                     
                 //Process message from other distributors 
                 else { 
                     buffer[valread] = '\0'; 
-                    cout << "==> Received data" << endl << buffer << endl;
+                    cout << endl << "==> Received data" << endl << buffer << endl;
                     // Parse JSON
                     ptree pt;
                     stringstream ss_recv;
@@ -375,74 +362,68 @@ int main(int argc , char *argv[])
                             continue;
                         }
                         cout << "==> Plain text topic: " << str_data << endl;
-                        string sub_topic;
-                        int topic_level = count((str_data).begin(), (str_data).end(), '/'); // num of '/'
-                        if (topic_level > 0) {
-                            size_t found = (str_data).length();
-                            for (int i = 0; i < topic_level+1; i++) {
-                                sub_topic = (str_data).substr(0, found);
-                                //cout << "Try to find " << (topic).substr(0, found) << endl;
-                                cout << "Try to find " << sub_topic << endl;
-                                try {
-                                    //distr = map.at((*topic).substr(0, found));
-                                    distr = dist_map.at(sub_topic);
-                                    cout << "==> Found distributor" << endl;
-                                    //cout << "Topic: " << (*topic).substr(0, found) << endl;
-                                    cout << "Topic: " << sub_topic << endl;
-                                    cout << "Host: " << distr.host << endl;
-                                    cout << "Record: " << distr.record << endl;
-                                    cout << "Learned: " << asctime(localtime(&(distr.last_learned))) << endl;
-                                    time_t now = time(nullptr);
-                                    cout << now - distr.last_learned << " second past since last time learned";
-                                    cout << endl;
-                                    break;
-                                }
-                                catch (const out_of_range &e) {
-                                    found = (str_data).find_last_of('/');      
-                                    if (found == string::npos) { // Non of distributors matched
-                                        cout << "==> Could not find a distributor for: " << str_data << endl;
-                                    }
-                                    continue;
-                                }
-                            }
-                            //Create socket
-                            int sock = 0;
-                            struct sockaddr_in serv_addr;
-                            if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
-                                printf("\n Socket creation error \n");
-                                return -1;
-                            }
-                            serv_addr.sin_family = AF_INET;
-                            serv_addr.sin_port = htons(PORT);
-                            if(inet_pton(AF_INET, (distr.host).c_str(), &serv_addr.sin_addr)<=0) {
-                                printf("\nInvalid address/ Address not supported \n");
-                                return -1;
-                            }
-                            if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
-                                printf("\nConnection Failed \n");
-                                return -1;
-                            }
 
-                            //add new socket to array of sockets 
-                            for (i = 0; i < max_clients; i++) { 
-                                //if position is empty 
-                                if( client_socket[i] == 0 ) 
-                                { 
-                                    client_socket[i] = sock; 
-                                    printf("Adding to list of sockets as %d\n" , i); 
-                                    break; 
-                                } 
-                            }
-                            FD_SET(sock , &readfds); 
-                            send_query(sock, str_data);
+                        Distributor target = search_distributor(dist_map, str_data);
+                        cout << "target host: " << target.host << endl;
+                        cout << "target topic: " << target.topic << endl;
 
-                            ts_pair = make_pair(str_data, sd); // topic : socket
-                            cli_map.insert(ts_pair);
-
-                        } else {
-                            cerr << "ERR: Wrong topic format: " << str_data;
-                            exit(EXIT_FAILURE);
+                        if (target.host == "default") {
+                            cout << "Distributor object is default" << endl;
+                            cout << "Ignore the query" << endl;
+                            close(sd);
+                            client_socket[i] = 0;
+                            continue;
                         }
+                        if (target.host == *my_host) {
+                            cout << "==> I am Iron Man" << endl;
+                            send(sd, target.host.c_str(), strlen(target.host.c_str()), 0 );
+                            close(sd);
+                            client_socket[i] = 0;
+                            continue;
+                        }
+                        if (target.topic == str_data) {
+                            cout << "==> Resolve finish" << endl;
+                            send(sd, target.host.c_str(), strlen(target.host.c_str()), 0 );
+                            close(sd);
+                            client_socket[i] = 0;
+                            continue;
+                        }
+                        //Create socket
+                        cout << "==> Create new socket" << endl;
+                        int sock = 0;
+                        struct sockaddr_in serv_addr;
+                        if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+                            printf("\n Socket creation error \n");
+                            return -1;
+                        }
+                        serv_addr.sin_family = AF_INET;
+                        serv_addr.sin_port = htons(PORT);
+                        //if(inet_pton(AF_INET, (distr.host).c_str(), &serv_addr.sin_addr)<=0) {
+                        if(inet_pton(AF_INET, (target.host).c_str(), &serv_addr.sin_addr)<=0) {
+                            printf("\nInvalid address/ Address not supported \n");
+                            return -1;
+                        }
+                        if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+                            printf("\nConnection Failed \n");
+                            return -1;
+                        }
+
+                        //add new socket to array of sockets 
+                        for (i = 0; i < max_clients; i++) { 
+                            //if position is empty 
+                            if( client_socket[i] == 0 ) 
+                            { 
+                                client_socket[i] = sock; 
+                                printf("Adding to list of sockets as %d\n" , i); 
+                                break; 
+                            } 
+                        }
+                        FD_SET(sock , &readfds); 
+                        send_query(sock, str_data);
+
+                        ts_pair = make_pair(str_data, sd); // topic : socket
+                        cli_map.insert(ts_pair);
+                        continue;
                     }
 
 
@@ -480,51 +461,37 @@ int main(int argc , char *argv[])
                         // Create hello
                         send_hello(sd, *my_topic, *my_host, *my_record);
                         cout << "Hello message sent" << endl;
+                        close(sd);
+                        client_socket[i] = 0;
                     } else if (*type == "Query") {
-                        string sub_topic;
-                        int topic_level = count((*topic).begin(), (*topic).end(), '/'); // num of '/'
-                        if (topic_level > 0) {
-                            size_t found = (*topic).length();
-                            for (int i = 0; i < topic_level+1; i++) {
-                                sub_topic = (*topic).substr(0, found);
-                                //cout << "Try to find " << (*topic).substr(0, found) << endl;
-                                cout << "Try to find " << sub_topic << endl;
-                                try {
-                                    //distr = map.at((*topic).substr(0, found));
-                                    distr = dist_map.at(sub_topic);
-                                    cout << "==> Found distributor" << endl;
-                                    //cout << "Topic: " << (*topic).substr(0, found) << endl;
-                                    cout << "Topic: " << sub_topic << endl;
-                                    cout << "Host: " << distr.host << endl;
-                                    cout << "Record: " << distr.record << endl;
-                                    cout << "Learned: " << asctime(localtime(&(distr.last_learned))) << endl;
-                                    time_t now = time(nullptr);
-                                    cout << now - distr.last_learned << " second past since last time learned";
-                                    cout << endl;
-                                    break;
-                                }
-                                catch (const out_of_range &e) {
-                                    found = (*topic).find_last_of('/');      
-                                    continue;
-                                }
-                            }
-                            //create reply
-                            send_reply(sd, sub_topic, distr.host, distr.record);
-                        } else {
-                            cerr << "ERR: Wrong topic format: " << *topic;
-                            exit(EXIT_FAILURE);
+
+                        Distributor target = search_distributor(dist_map, *topic);
+
+                        if (target.host == "default") {
+                            cout << "Distributor object is default" << endl;
+                            cout << "Ignore the query" << endl;
+                            close(sd);
+                            client_socket[i] = 0;
+                            continue;
                         }
-                    } else if (*type == "Reply" ) {
+
+                        send_reply(sd, *topic, target.topic, target.host, target.record);
+
+                   } else if (*type == "Reply" ) {
+                        boost::optional<string> req_topic = pt.get_optional<string>("Requested_topic");
                         getpeername(sd , (struct sockaddr*)&address , (socklen_t*)&addrlen); 
                         string ip_addr = inet_ntoa(address.sin_addr);
                         // insert pair
                         distr.set_values(*topic, *host, *record);
                         pair = make_pair(*topic, distr);
                         dist_map.insert(pair);
+                        cout << "IP address: " << ip_addr << endl;
+                        cout << "host: " << *host << endl;
                         if (ip_addr == *host) {
                             cout << "==> Resolve finish" << endl;
-                            int cli_sock = cli_map.at(*topic);
+                            int cli_sock = cli_map.at(*req_topic);
                             send(cli_sock , (*host).c_str(), strlen((*host).c_str()), 0 );
+                            close(sd);
                             cli_map.erase(*topic);
                         } else {
                             cout << "==> Continue resolving" << endl;
@@ -558,7 +525,7 @@ int main(int argc , char *argv[])
                                 } 
                             }
                             FD_SET(sock , &readfds); 
-                            send_query(sock, query_topic);
+                            send_query(sock, *req_topic);
                         }
                     }
 

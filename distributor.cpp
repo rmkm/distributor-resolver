@@ -11,9 +11,9 @@ using namespace boost::property_tree;
 using namespace std;
 
 Distributor::Distributor() {
-    topic = "default_topic";
-    host = "default_host";
-    record = "default_record";
+    topic = "default";
+    host = "default";
+    record = "default";
     last_learned = time(nullptr);
 }
 
@@ -32,6 +32,10 @@ void Distributor::set_values (string t, string h, string r) {
 
 void Distributor::get_current_time() {
     last_learned = time(nullptr);
+}
+
+void Distributor::set_host(string h) {
+    host = h;
 }
 
 bool is_valid_topic(string topic) {
@@ -62,13 +66,18 @@ ptree create_query(string topic) {
     return pt;
 }
 
-ptree create_reply(string topic, string host, string record) {
+ptree create_reply(string req_topic, string topic, string host, string record) {
     ptree pt;
     if (!is_valid_topic(topic)) {
-        cout << "ERR: Topic is invalid" << endl;
+        cout << "ERR: Topic is invalid: " << topic << endl;
+        return pt;
+    }
+    if (!is_valid_topic(req_topic)) {
+        cout << "ERR: Topic is invalid: " << req_topic << endl;
         return pt;
     }
     pt.put("Type", "Reply");
+    pt.put("Requested_topic", req_topic);
     pt.put("Topic", topic);
     pt.put("Host", host);
     pt.put("Record", record);
@@ -103,8 +112,8 @@ bool send_query(int socket, string topic) {
     return true;
 }
 
-bool send_reply(int socket, string topic, string host, string record) {
-    ptree pt = create_reply(topic, host, record);
+bool send_reply(int socket, string req_topic, string topic, string host, string record) {
+    ptree pt = create_reply(req_topic, topic, host, record);
     if (pt.empty()) {
         cout << "ERR: Failed to create reply" << endl;
         return false;
@@ -115,4 +124,60 @@ bool send_reply(int socket, string topic, string host, string record) {
     cout << ss.str() << endl;
     send(socket, ss.str().c_str(), ss.str().length(), 0);
     return true;
+}
+
+// Return IP address
+Distributor search_distributor (distributor_map dist_map, string topic) {
+    Distributor distr;
+    if (!is_valid_topic(topic)) {
+        cout << "ERR: Topic is invalid" << endl;
+        return distr;
+    }
+    //string target_host;
+    string sub_topic;
+    int topic_level = count((topic).begin(), (topic).end(), '/'); // num of '/'
+    size_t found = (topic).length();
+    for (int i = 0; i < topic_level+1; i++) {
+        sub_topic = (topic).substr(0, found);
+        try {
+            cout << "Try to find " << sub_topic << endl;
+            distr = dist_map.at(sub_topic);
+            cout << "==> Found distributor" << endl;
+            cout << "Topic: " << sub_topic << endl;
+            cout << "Host: " << distr.host << endl;
+            cout << "Record: " << distr.record << endl;
+            cout << "Learned: " << asctime(localtime(&(distr.last_learned))) << endl;
+            time_t now = time(nullptr);
+            cout << now - distr.last_learned << " second past since last time learned";
+            cout << endl;
+            //target_host = distr.host;
+            break;
+        }
+        catch (const out_of_range &e) {
+            //cout << "Next" << endl;
+            found = sub_topic.find_last_of('/');
+            //cout << "topic: " << sub_topic << endl;
+            //cout << "found: " << found << endl;
+            if (found > sub_topic.length()) { // Non of distributors matched
+                cout << "==> Could not find a distributor for: " << topic << endl;
+                cout << "Return root distributor" << endl;
+                try {
+                    distr = dist_map.at("root");
+                }
+                catch (exception & e) {
+                    cout << "root distributor is not specified" << endl;
+                }
+                //target_host = distr.host;
+                //if (root) {
+                //    cout << "Send query to root distributor" << endl;
+                //    target_host = *root;
+                //} else {
+                //    cout << "root distributor is not specified, drop the request" << endl;
+                //}
+            }
+            continue;
+        }
+    }
+    return distr;
+    //return target_host;
 }
